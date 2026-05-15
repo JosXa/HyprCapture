@@ -1,7 +1,5 @@
 #include <algorithm>
-#include <array>
 #include <chrono>
-#include <deque>
 #include <string>
 #include <typeindex>
 
@@ -27,21 +25,6 @@ namespace {
 
 constexpr const char* kOverlayLayerRuleName = "hyprcapture-ui-no-compositor-anim";
 constexpr auto        kMinDispatchInterval = std::chrono::milliseconds(750);
-constexpr std::array  kLuaFunctionNames = {
-    "open",
-    "quick",
-    "record",
-    "record_toggle",
-    "record_stop",
-    "record_start",
-    "window_capture",
-    "record_start_dispatcher",
-    "window_capture_dispatcher",
-    "record_stop_dispatcher",
-    "cancel",
-    "dispatch",
-};
-
 std::chrono::steady_clock::time_point g_lastCaptureDispatch {};
 std::chrono::steady_clock::time_point g_lastQuickRejectNotification {};
 
@@ -49,57 +32,23 @@ std::string configName(const std::string& suffix) {
     return "plugin:hyprcapture:" + suffix;
 }
 
-const Config::SConfigOptionReply configOption(const std::string& name) {
-    if (!g_pluginHandle)
-        return {};
-    return Config::mgr()->getConfigValue(name);
-}
-
 std::string configString(const std::string& suffix, const std::string& fallback) {
-    const auto value = configOption(configName(suffix));
-    if (!value.dataptr || !value.type)
+    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
+    if (!value)
         return fallback;
-
-    const auto type = std::type_index(*value.type);
-    if (type == typeid(Config::STRING))
-        return **reinterpret_cast<Config::STRING* const*>(value.dataptr);
-
-    if (type == typeid(Hyprlang::STRING)) {
-        const auto raw = *reinterpret_cast<Hyprlang::STRING const*>(value.dataptr);
-        return raw ? std::string(raw) : fallback;
-    }
-
-    return fallback;
+    const auto raw = std::any_cast<Hyprlang::STRING>(value->getValue());
+    return raw ? std::string(raw) : fallback;
 }
 
 std::int64_t configInt(const std::string& suffix, std::int64_t fallback) {
-    const auto value = configOption(configName(suffix));
-    if (!value.dataptr || !value.type)
+    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
+    if (!value)
         return fallback;
-
-    const auto type = std::type_index(*value.type);
-    if (type == typeid(Config::INTEGER))
-        return **reinterpret_cast<Config::INTEGER* const*>(value.dataptr);
-
-    if (type == typeid(Config::BOOL))
-        return **reinterpret_cast<Config::BOOL* const*>(value.dataptr) ? 1 : 0;
-
-    return fallback;
+    return std::any_cast<Hyprlang::INT>(value->getValue());
 }
 
 bool configBool(const std::string& suffix, bool fallback) {
-    const auto value = configOption(configName(suffix));
-    if (!value.dataptr || !value.type)
-        return fallback;
-
-    const auto type = std::type_index(*value.type);
-    if (type == typeid(Config::BOOL))
-        return **reinterpret_cast<Config::BOOL* const*>(value.dataptr);
-
-    if (type == typeid(Config::INTEGER))
-        return **reinterpret_cast<Config::INTEGER* const*>(value.dataptr) != 0;
-
-    return fallback;
+    return configInt(suffix, fallback ? 1 : 0) != 0;
 }
 
 void addStringConfig(const char* suffix, const char* description, const char* fallback) {
@@ -421,13 +370,7 @@ int luaDispatch(lua_State* L) {
     return lua_error(L);
 }
 
-void unregisterLuaFunctions() {
-    if (!g_pluginHandle || !Config::mgr() || Config::mgr()->type() != Config::CONFIG_LUA)
-        return;
-
-    for (const auto* name : kLuaFunctionNames)
-        HyprlandAPI::removeLuaFunction(g_pluginHandle, "hyprcapture", name);
-}
+void unregisterLuaFunctions() {}
 
 } // namespace
 
@@ -458,25 +401,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     registerDispatcher("hyprcapture:record-start", dispatchRecordStart);
     registerDispatcher("hyprcapture:window-capture", dispatchWindowCapture);
     registerDispatcher("hyprcapture:cancel", dispatchCancel);
-
-    if (Config::mgr() && Config::mgr()->type() == Config::CONFIG_LUA) {
-        const auto registerLuaFunction = [&](const char* name, PLUGIN_LUA_FN fn) {
-            HyprlandAPI::addLuaFunction(g_pluginHandle, "hyprcapture", name, fn);
-        };
-
-        registerLuaFunction("open", luaOpen);
-        registerLuaFunction("quick", luaQuick);
-        registerLuaFunction("record", luaRecord);
-        registerLuaFunction("record_toggle", luaRecordToggle);
-        registerLuaFunction("record_stop", luaRecordStop);
-        registerLuaFunction("record_start", luaRecordStart);
-        registerLuaFunction("window_capture", luaWindowCapture);
-        registerLuaFunction("record_start_dispatcher", luaRecordStartDispatcher);
-        registerLuaFunction("window_capture_dispatcher", luaWindowCaptureDispatcher);
-        registerLuaFunction("record_stop_dispatcher", luaRecordStopDispatcher);
-        registerLuaFunction("cancel", luaCancel);
-        registerLuaFunction("dispatch", luaDispatch);
-    }
 
     if (!HyprlandAPI::reloadConfig())
         HyprlandAPI::addNotification(g_pluginHandle, "[hyprcapture] reloadConfig failed", CHyprColor(1.0, 0.2, 0.2, 1.0), 5000);
