@@ -99,6 +99,8 @@ class CaptureOverlay final : public QMainWindow {
     QRect localScreenRectAt(const QPoint& localPos) const;
     QPoint clampedToRect(const QPoint& point, const QRect& bounds) const;
     QRect globalToLocalRect(const QRect& rect) const;
+    QPoint localToGlobalPoint(const QPoint& point) const;
+    QPoint globalToLocalPoint(const QPoint& point) const;
     QRect localToDesktopLogicalRect(const QRect& rect) const;
     QPoint localToDesktopLogicalPoint(const QPoint& point) const;
     QRect desktopSourceRectForGlobalRect(const QRect& rect) const;
@@ -182,6 +184,7 @@ class CaptureOverlay final : public QMainWindow {
     QLabel*      m_status = nullptr;
     QImage       m_desktopImage;
     QRect        m_desktopGeometry;
+    QRect        m_overlayGeometry;
     int          m_sessionMonitorCount = 0;
     int          m_sessionWindowCount = 0;
     int          m_selectedWindowIndex = -1;

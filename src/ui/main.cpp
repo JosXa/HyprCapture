@@ -581,6 +581,7 @@ int main(int argc, char** argv) {
         {"session-json", "Compositor session metadata.", "json", "{}"},
         {"session-json-file", "Private compositor session metadata file.", "path"},
         {"thumbnail-window", "Show a normal thumbnail window for an image path.", "path"},
+        {"thumbnail-screen-geometry", "Target thumbnail screen geometry as x,y,width,height.", "geometry"},
         {"record-countdown-request", "Show an input-transparent recording countdown for a private request file.", "path"},
         {"recording-result", "Handle a completed recording result.", "path"},
         {"recording-transcode-input", "Transcode an intermediate recording input.", "path"},
@@ -604,7 +605,9 @@ int main(int argc, char** argv) {
                                   thumbnailPath,
                                   parser.value("restore-clipboard"),
                                   parser.value("thumbnail-delete-root"),
-                                  boundedInt(parser.value("thumbnail-timeout-ms"), 5000, 0, MAX_THUMBNAIL_TIMEOUT_MS));
+                                  boundedInt(parser.value("thumbnail-timeout-ms"), 5000, 0, MAX_THUMBNAIL_TIMEOUT_MS),
+                                  false,
+                                  parser.value("thumbnail-screen-geometry"));
         thumbnail.show();
         return app.exec();
     }

@@ -27,6 +27,7 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QPushButton>
+#include <QScreen>
 #include <QStyleHints>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -219,6 +220,25 @@ bool canDeleteThumbnailPath(const QString& path, const QString& deleteRoot) {
     return !info.exists() || info.isFile();
 }
 
+QScreen* screenForGeometry(const QString& value) {
+    const QStringList parts = value.split(QLatin1Char(','));
+    if (parts.size() != 4)
+        return nullptr;
+
+    bool okX = false;
+    bool okY = false;
+    bool okW = false;
+    bool okH = false;
+    const QRect target(QPoint(parts[0].toInt(&okX), parts[1].toInt(&okY)), QSize(parts[2].toInt(&okW), parts[3].toInt(&okH)));
+    if (!okX || !okY || !okW || !okH || !target.isValid())
+        return nullptr;
+
+    for (auto* screen : QGuiApplication::screens())
+        if (screen && screen->geometry() == target)
+            return screen;
+    return QGuiApplication::screenAt(target.center());
+}
+
 QIcon iconFromGIcon(GIcon* icon) {
     if (!icon || !G_IS_THEMED_ICON(icon))
         return {};
@@ -291,7 +311,14 @@ std::vector<OpenWithApp> openWithAppsForPath(const QString& path) {
 
 } // namespace
 
-ResultThumbnail::ResultThumbnail(const QPixmap& pixmap, QString path, QString restoreClipboardPath, QString deleteRoot, int timeoutMs, bool copyFile, QWidget* parent)
+ResultThumbnail::ResultThumbnail(const QPixmap& pixmap,
+                                 QString path,
+                                 QString restoreClipboardPath,
+                                 QString deleteRoot,
+                                 int timeoutMs,
+                                 bool copyFile,
+                                 QString screenGeometry,
+                                 QWidget* parent)
     : QWidget(parent), m_path(std::move(path)), m_restoreClipboardPath(std::move(restoreClipboardPath)), m_deleteRoot(std::move(deleteRoot)), m_copyFile(copyFile) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus);
     setFocusPolicy(Qt::NoFocus);
@@ -434,6 +461,10 @@ ResultThumbnail::ResultThumbnail(const QPixmap& pixmap, QString path, QString re
     adjustSize();
     winId();
     if (auto* layerWindow = LayerShellQt::Window::get(windowHandle())) {
+        if (auto* targetScreen = screenForGeometry(screenGeometry)) {
+            windowHandle()->setScreen(targetScreen);
+            layerWindow->setScreen(targetScreen);
+        }
         layerWindow->setScope("hyprcapture-thumbnail");
         layerWindow->setLayer(LayerShellQt::Window::LayerOverlay);
         layerWindow->setAnchors(LayerShellQt::Window::Anchors{LayerShellQt::Window::AnchorRight} | LayerShellQt::Window::AnchorBottom);

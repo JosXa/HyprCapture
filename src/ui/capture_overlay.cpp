@@ -140,6 +140,49 @@ QString qString(const std::string& value) {
     return QString::fromStdString(value);
 }
 
+struct FocusedHyprlandOutput {
+    QRect    geometry;
+    QScreen* screen = nullptr;
+};
+
+FocusedHyprlandOutput focusedHyprlandOutput() {
+    QProcess hyprctl;
+    hyprctl.start(QStringLiteral("hyprctl"), {QStringLiteral("monitors"), QStringLiteral("-j")});
+    if (!hyprctl.waitForFinished(1000) || hyprctl.exitStatus() != QProcess::NormalExit || hyprctl.exitCode() != 0)
+        return {};
+
+    const auto doc = QJsonDocument::fromJson(hyprctl.readAllStandardOutput());
+    if (!doc.isArray())
+        return {};
+
+    for (const auto value : doc.array()) {
+        const auto obj = value.toObject();
+        if (!obj.value(QStringLiteral("focused")).toBool(false))
+            continue;
+
+        const QString focusedName = obj.value(QStringLiteral("name")).toString();
+        const QRect focusedGeometry(QPoint(obj.value(QStringLiteral("x")).toInt(), obj.value(QStringLiteral("y")).toInt()),
+                                     QSize(obj.value(QStringLiteral("width")).toInt(), obj.value(QStringLiteral("height")).toInt()));
+        FocusedHyprlandOutput output{.geometry = focusedGeometry};
+
+        for (auto* screen : QGuiApplication::screens()) {
+            if (screen && screen->name() == focusedName) {
+                output.screen = screen;
+                return output;
+            }
+        }
+        for (auto* screen : QGuiApplication::screens()) {
+            if (screen && screen->geometry() == focusedGeometry) {
+                output.screen = screen;
+                return output;
+            }
+        }
+        return output;
+    }
+
+    return {};
+}
+
 QString normalizedChoice(QString value) {
     value = value.trimmed().toLower();
     value.replace(QLatin1Char('_'), QLatin1Char('-'));
@@ -1404,7 +1447,11 @@ CaptureOverlay::CaptureOverlay(hyprcapture::CaptureDefaults defaults, bool quick
     captureScreensBeforeOverlay();
     traceTiming(QStringLiteral("prepare_desktop"), preCaptureTimer.elapsed());
 
-    setGeometry(m_desktopGeometry.isValid() ? m_desktopGeometry : QRect(0, 0, 1280, 720));
+    const FocusedHyprlandOutput targetOutput = focusedHyprlandOutput();
+    m_overlayGeometry = targetOutput.geometry.isValid()
+        ? targetOutput.geometry
+        : (m_desktopGeometry.isValid() ? m_desktopGeometry : QRect(0, 0, 1280, 720));
+    setGeometry(m_overlayGeometry);
 
     QElapsedTimer toolbarTimer;
     toolbarTimer.start();
@@ -1414,6 +1461,10 @@ CaptureOverlay::CaptureOverlay(hyprcapture::CaptureDefaults defaults, bool quick
     winId();
     if (auto* layerWindow = LayerShellQt::Window::get(windowHandle())) {
         layerWindow->setScope("hyprcapture-ui");
+        if (targetOutput.screen) {
+            windowHandle()->setScreen(targetOutput.screen);
+            layerWindow->setScreen(targetOutput.screen);
+        }
         layerWindow->setLayer(LayerShellQt::Window::LayerOverlay);
         layerWindow->setAnchors(LayerShellQt::Window::Anchors{LayerShellQt::Window::AnchorTop} | LayerShellQt::Window::AnchorBottom |
                                 LayerShellQt::Window::AnchorLeft | LayerShellQt::Window::AnchorRight);
@@ -2664,7 +2715,7 @@ QRect CaptureOverlay::localScreenRectAt(const QPoint& localPos) const {
         }
     }
 
-    QScreen* screen = QGuiApplication::screenAt(mapToGlobal(localPos));
+    QScreen* screen = QGuiApplication::screenAt(localToGlobalPoint(localPos));
     if (!screen)
         screen = QGuiApplication::screenAt(cursorLogicalPosition());
     if (!screen)
@@ -2679,21 +2730,27 @@ QPoint CaptureOverlay::clampedToRect(const QPoint& point, const QRect& bounds) c
 }
 
 QRect CaptureOverlay::globalToLocalRect(const QRect& rect) const {
-    if (m_desktopGeometry.isValid())
-        return QRect(rect.topLeft() - m_desktopGeometry.topLeft(), rect.size());
-    return QRect(mapFromGlobal(rect.topLeft()), rect.size());
+    return QRect(globalToLocalPoint(rect.topLeft()), rect.size());
+}
+
+QPoint CaptureOverlay::localToGlobalPoint(const QPoint& point) const {
+    if (m_overlayGeometry.isValid())
+        return m_overlayGeometry.topLeft() + point;
+    return mapToGlobal(point);
+}
+
+QPoint CaptureOverlay::globalToLocalPoint(const QPoint& point) const {
+    if (m_overlayGeometry.isValid())
+        return point - m_overlayGeometry.topLeft();
+    return mapFromGlobal(point);
 }
 
 QRect CaptureOverlay::localToDesktopLogicalRect(const QRect& rect) const {
-    if (m_desktopGeometry.isValid())
-        return QRect(m_desktopGeometry.topLeft() + rect.topLeft(), rect.size());
-    return QRect(QPoint(mapToGlobal(rect.topLeft())), rect.size());
+    return QRect(localToGlobalPoint(rect.topLeft()), rect.size());
 }
 
 QPoint CaptureOverlay::localToDesktopLogicalPoint(const QPoint& point) const {
-    if (m_desktopGeometry.isValid())
-        return m_desktopGeometry.topLeft() + point;
-    return mapToGlobal(point);
+    return localToGlobalPoint(point);
 }
 
 QRect CaptureOverlay::desktopSourceRectForGlobalRect(const QRect& rect) const {
@@ -2716,7 +2773,7 @@ QRect CaptureOverlay::localToDesktopSourceRect(const QRect& rect) const {
 QPoint CaptureOverlay::cursorLogicalPosition() const {
     if (m_hasCursorLogicalPosition)
         return m_cursorLogicalPosition;
-    const QPoint local = mapFromGlobal(QCursor::pos());
+    const QPoint local = globalToLocalPoint(QCursor::pos());
     if (rect().contains(local))
         return localToDesktopLogicalPoint(local);
     return QCursor::pos();
@@ -2739,7 +2796,7 @@ void CaptureOverlay::rememberCursorLocalPosition(const QPointF& localPosition) {
 
 void CaptureOverlay::refreshInitialCursorPosition() {
     if (!m_hasCursorLogicalPosition) {
-        const QPoint local = mapFromGlobal(QCursor::pos());
+        const QPoint local = globalToLocalPoint(QCursor::pos());
         if (rect().contains(local))
             rememberCursorLocalPosition(local);
         else
@@ -3342,6 +3399,9 @@ void CaptureOverlay::showThumbnail(const QImage& image, const QString& path, con
     }
 
     QStringList args{"--thumbnail-window", thumbPath, "--thumbnail-timeout-ms", QString::number(m_defaults.thumbnailTimeoutMs)};
+    if (m_overlayGeometry.isValid())
+        args << "--thumbnail-screen-geometry"
+             << QStringLiteral("%1,%2,%3,%4").arg(m_overlayGeometry.x()).arg(m_overlayGeometry.y()).arg(m_overlayGeometry.width()).arg(m_overlayGeometry.height());
     if (m_defaults.save) {
         const QString deleteRoot = QString::fromStdString(hyprcapture::expandUserPath(m_defaults.saveDir).string());
         if (!deleteRoot.isEmpty())
