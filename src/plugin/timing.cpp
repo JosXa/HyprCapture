@@ -1,9 +1,9 @@
 #include "plugin/timing.hpp"
 
-#include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 #include <atomic>
+#include <any>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -14,7 +14,6 @@
 #include <mutex>
 #include <string>
 #include <sys/stat.h>
-#include <typeindex>
 #include <unistd.h>
 
 extern HANDLE g_pluginHandle;
@@ -30,42 +29,29 @@ std::string configName(const std::string& suffix) {
     return "plugin:hyprcapture:" + suffix;
 }
 
-const Config::SConfigOptionReply configOption(const std::string& name) {
-    if (!g_pluginHandle)
-        return {};
-    return Config::mgr()->getConfigValue(name);
-}
-
 bool configBool(const std::string& suffix, bool fallback) {
-    const auto value = configOption(configName(suffix));
-    if (!value.dataptr || !value.type)
+    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
+    if (!value)
         return fallback;
 
-    const auto type = std::type_index(*value.type);
-    if (type == typeid(Config::BOOL))
-        return **reinterpret_cast<Config::BOOL* const*>(value.dataptr);
-
-    if (type == typeid(Config::INTEGER))
-        return **reinterpret_cast<Config::INTEGER* const*>(value.dataptr) != 0;
-
-    return fallback;
+    try {
+        return std::any_cast<Hyprlang::INT>(value->getValue()) != 0;
+    } catch (const std::bad_any_cast&) {
+        return fallback;
+    }
 }
 
 std::string configString(const std::string& suffix) {
-    const auto value = configOption(configName(suffix));
-    if (!value.dataptr || !value.type)
+    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
+    if (!value)
         return {};
 
-    const auto type = std::type_index(*value.type);
-    if (type == typeid(Config::STRING))
-        return **reinterpret_cast<Config::STRING* const*>(value.dataptr);
-
-    if (type == typeid(Hyprlang::STRING)) {
-        const auto raw = *reinterpret_cast<Hyprlang::STRING const*>(value.dataptr);
+    try {
+        const auto raw = std::any_cast<Hyprlang::STRING>(value->getValue());
         return raw ? std::string(raw) : std::string{};
+    } catch (const std::bad_any_cast&) {
+        return {};
     }
-
-    return {};
 }
 
 bool runtimeRootMatches(const std::filesystem::path& root, const std::filesystem::path& path) {
