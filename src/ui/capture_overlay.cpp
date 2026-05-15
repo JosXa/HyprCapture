@@ -2460,9 +2460,10 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event) {
         m_mode = hyprcapture::CaptureMode::Region;
         m_dragging = true;
         m_dragStart = event->pos();
+        const QRect previous = normalizedSelection();
         m_dragEnd = clampedToRect(event->pos(), regionCaptureBounds());
         updateStatus();
-        update();
+        update(selectionUpdateRect(previous, normalizedSelection()));
         return;
     }
 
@@ -2482,7 +2483,7 @@ void CaptureOverlay::mousePressEvent(QMouseEvent* event) {
         m_recordError.clear();
     m_dragStart = event->pos();
     m_dragEnd = clampedToRect(event->pos(), regionCaptureBounds());
-    update();
+    update(selectionUpdateRect({}, normalizedSelection()));
 }
 
 void CaptureOverlay::mouseMoveEvent(QMouseEvent* event) {
@@ -2513,10 +2514,11 @@ void CaptureOverlay::mouseMoveEvent(QMouseEvent* event) {
     }
 
     if (m_defaults.fushionMode && m_mode != hyprcapture::CaptureMode::Fullscreen) {
+        const QRect previous = normalizedSelection();
         if (m_dragging)
             m_dragEnd = clampedToRect(event->pos(), regionCaptureBounds());
         updateStatus();
-        update();
+        update(selectionUpdateRect(previous, normalizedSelection()));
         return;
     }
 
@@ -2527,8 +2529,9 @@ void CaptureOverlay::mouseMoveEvent(QMouseEvent* event) {
     }
     if (!m_dragging)
         return;
+    const QRect previous = normalizedSelection();
     m_dragEnd = clampedToRect(event->pos(), regionCaptureBounds());
-    update();
+    update(selectionUpdateRect(previous, normalizedSelection()));
 }
 
 void CaptureOverlay::mouseReleaseEvent(QMouseEvent* event) {
@@ -2682,6 +2685,19 @@ void CaptureOverlay::resizeEvent(QResizeEvent* event) {
 
 QRect CaptureOverlay::normalizedSelection() const {
     return QRect(m_dragStart, m_dragEnd).normalized();
+}
+
+QRect CaptureOverlay::selectionUpdateRect(const QRect& previous, const QRect& current) const {
+    QRect dirty;
+    if (previous.isValid())
+        dirty = dirty.united(previous);
+    if (current.isValid())
+        dirty = dirty.united(current);
+    if (!dirty.isValid())
+        return QRect();
+
+    // Selection painting redraws the image plus a 2px border, so pad the damage a little.
+    return dirty.adjusted(-6, -6, 6, 6).intersected(rect());
 }
 
 QRect CaptureOverlay::captureRectForMode() const {

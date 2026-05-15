@@ -93,6 +93,7 @@ class CaptureOverlay final : public QMainWindow {
     QImage renderDesktopRectAtDisplayResolution(const QRect& globalRect) const;
     void paintDesktop(QPainter& painter, const QRect& target) const;
     QRect normalizedSelection() const;
+    QRect selectionUpdateRect(const QRect& previous, const QRect& current) const;
     QRect captureRectForMode() const;
     QRect fullscreenCaptureRect() const;
     QRect regionCaptureBounds() const;
