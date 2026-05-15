@@ -615,6 +615,19 @@ bool copyImageFileToClipboardDetached(const QString& path) {
     return copyFileWithWlCopyDetached(path, QStringLiteral("image/png"), false);
 }
 
+bool copyTextToClipboard(const QString& text) {
+    const QByteArray bytes = text.toUtf8();
+    if (!bytes.isEmpty() && copyBytesWithWlCopy(bytes, QStringLiteral("text/plain")))
+        return true;
+
+    auto* clipboard = QGuiApplication::clipboard();
+    if (!clipboard)
+        return false;
+
+    clipboard->setText(text);
+    return true;
+}
+
 bool copyFileUrlToClipboard(const QString& path) {
     const QFileInfo info(path);
     const QString canonical = info.canonicalFilePath();

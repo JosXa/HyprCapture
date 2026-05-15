@@ -363,7 +363,7 @@ int showRecordingResult(const hyprcapture::CaptureDefaults& defaults, const QStr
         restoreClipboardPath = hyprcapture::ui::saveClipboardSnapshot();
 
     if (defaults.clipboard)
-        hyprcapture::ui::copyFileUrlToClipboard(canonicalPath);
+        hyprcapture::ui::copyTextToClipboard(canonicalPath);
 
     if (!defaults.showThumbnail) {
         hyprcapture::ui::discardClipboardSnapshot(restoreClipboardPath);
@@ -496,7 +496,7 @@ int showRecordingTranscode(const hyprcapture::CaptureDefaults& defaults, const Q
         if (success) {
             setOwnerOnlyPermissions(state->outputPath);
             if (state->defaults.clipboard)
-                hyprcapture::ui::copyFileUrlToClipboard(state->outputPath);
+                hyprcapture::ui::copyTextToClipboard(QFileInfo(state->outputPath).absoluteFilePath());
             if (state->thumbnail) {
                 state->thumbnail->setTranscodeProgress(1.0);
                 state->thumbnail->setImagePixmap(recordingThumbnailPixmap(true));
