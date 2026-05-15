@@ -519,46 +519,6 @@ LaunchResult launchRecordingResultHelper(const CaptureDefaults& defaults, const 
     return {.success = true};
 }
 
-LaunchResult launchRecordingOutlineHelper(const CaptureDefaults& defaults, const std::string& geometry, pid_t& pid) {
-    pid = -1;
-    if (geometry.empty())
-        return {.success = false, .error = "recording outline geometry missing"};
-
-    const auto helper = firstRunnableHelper(defaults.helper);
-    if (!helper)
-        return {.success = false, .error = "no trusted hyprcapture-ui helper found"};
-
-    std::vector<std::string> args{*helper, "--recording-outline", geometry};
-    std::vector<char*>       argv;
-    argv.reserve(args.size() + 1);
-    for (auto& arg : args)
-        argv.push_back(arg.data());
-    argv.push_back(nullptr);
-
-    auto childEnv = childEnvironment();
-    std::vector<char*> envp;
-    envp.reserve(childEnv.size() + 1);
-    for (auto& env : childEnv)
-        envp.push_back(env.data());
-    envp.push_back(nullptr);
-
-    SpawnFileActions fileActions;
-    if (const auto error = initSpawnFileActions(fileActions))
-        return {.success = false, .error = std::string("spawn setup failed: ") + std::strerror(*error)};
-
-    SpawnAttributes attrs;
-    if (const auto error = initSpawnAttributes(attrs))
-        return {.success = false, .error = std::string("spawn setup failed: ") + std::strerror(*error)};
-
-    if (const auto error = configureSpawnFileDescriptorPolicy(fileActions, attrs))
-        return {.success = false, .error = std::string("spawn setup failed: ") + std::strerror(*error)};
-
-    const int spawnError = posix_spawn(&pid, argv[0], &fileActions.value, &attrs.value, argv.data(), envp.data());
-    if (spawnError != 0)
-        return {.success = false, .error = std::string("recording outline helper exec failed: ") + std::strerror(spawnError)};
-    return {.success = true};
-}
-
 LaunchResult launchRecordingTranscodeHelper(const CaptureDefaults& defaults,
                                             const std::string&     inputPath,
                                             const std::string&     outputPath,

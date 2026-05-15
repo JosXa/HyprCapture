@@ -1032,7 +1032,6 @@ std::unique_ptr<FinishingRawRecording> g_finishingRawRecording;
 
 struct ActiveGsrRecording {
     pid_t                 pid = -1;
-    pid_t                 outlinePid = -1;
     SP<CEventLoopTimer>   timer;
     std::filesystem::path outputPath;
     CaptureDefaults       defaults;
@@ -1043,15 +1042,6 @@ std::unique_ptr<ActiveGsrRecording> g_gsrRecording;
 void notifyRecording(const std::string& message, const CHyprColor& color = CHyprColor(0.2, 0.8, 0.3, 1.0), float timeoutMs = 3000) {
     if (g_pluginHandle)
         HyprlandAPI::addNotification(g_pluginHandle, "[hyprcapture] " + message, color, timeoutMs);
-}
-
-void stopRecordingOutline(pid_t pid) {
-    if (pid <= 0)
-        return;
-    kill(pid, SIGTERM);
-    int status = 0;
-    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
-    }
 }
 
 void finishRecordingOutput(const CaptureDefaults& defaults, const std::filesystem::path& outputPath, const std::string& message, bool launchResultHelper) {
@@ -1078,7 +1068,6 @@ bool reapGsrRecordingIfExited() {
         auto recording = std::move(g_gsrRecording);
         if (recording->timer && g_pEventLoopManager)
             g_pEventLoopManager->removeTimer(recording->timer);
-        stopRecordingOutline(recording->outlinePid);
         finishRecordingOutput(recording->defaults, recording->outputPath, "recording finished", true);
         return false;
     }
@@ -1154,7 +1143,6 @@ LaunchResult stopRecordingInternal(const std::string& reason, bool drain) {
         if (recording->timer && g_pEventLoopManager)
             g_pEventLoopManager->removeTimer(recording->timer);
         recording->timer.reset();
-        stopRecordingOutline(recording->outlinePid);
         if (recording->pid > 0) {
             kill(recording->pid, SIGINT);
             int status = 0;
@@ -1389,15 +1377,6 @@ LaunchResult startGsrRecording(const RecordingRequest& request) {
     g_gsrRecording->pid = pid;
     g_gsrRecording->outputPath = *outputPath;
     g_gsrRecording->defaults = request.defaults;
-    if (request.mode == CaptureMode::Region) {
-        const std::string geometry = std::to_string(static_cast<int>(std::round(request.targetGeometry.x))) + "," +
-            std::to_string(static_cast<int>(std::round(request.targetGeometry.y))) + "," +
-            std::to_string(static_cast<int>(std::round(request.targetGeometry.width))) + "," +
-            std::to_string(static_cast<int>(std::round(request.targetGeometry.height)));
-        pid_t outlinePid = -1;
-        if (launchRecordingOutlineHelper(request.defaults, geometry, outlinePid).success)
-            g_gsrRecording->outlinePid = outlinePid;
-    }
     scheduleGsrStopTimer(std::clamp<int>(static_cast<int>(request.defaults.recordMaxSeconds), 0, 24 * 60 * 60));
 
     return {.success = true};

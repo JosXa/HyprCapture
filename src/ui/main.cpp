@@ -19,7 +19,6 @@
 #include <QJsonDocument>
 #include <QPaintEvent>
 #include <QPainter>
-#include <QPen>
 #include <QPixmap>
 #include <QProcess>
 #include <QScreen>
@@ -531,56 +530,6 @@ int showRecordingTranscode(const hyprcapture::CaptureDefaults& defaults, const Q
     return qApp->exec();
 }
 
-QRect parseGeometry(const QString& value) {
-    const QStringList parts = value.split(QLatin1Char(','));
-    if (parts.size() != 4)
-        return {};
-    bool okX = false;
-    bool okY = false;
-    bool okW = false;
-    bool okH = false;
-    const int x = parts[0].toInt(&okX);
-    const int y = parts[1].toInt(&okY);
-    const int w = parts[2].toInt(&okW);
-    const int h = parts[3].toInt(&okH);
-    if (!okX || !okY || !okW || !okH || w <= 0 || h <= 0)
-        return {};
-    return QRect(x, y, w, h);
-}
-
-class RecordingOutlineWindow final : public QWidget {
-  public:
-    explicit RecordingOutlineWindow(const QRect& geometry) {
-        constexpr int margin = 4;
-        setWindowFlags(Qt::FramelessWindowHint | Qt::Tool);
-        setAttribute(Qt::WA_TranslucentBackground);
-        setAttribute(Qt::WA_TransparentForMouseEvents);
-        setGeometry(geometry.adjusted(-margin, -margin, margin, margin));
-        winId();
-
-        if (QScreen* screen = QGuiApplication::screenAt(geometry.center()))
-            windowHandle()->setScreen(screen);
-        if (auto* layerWindow = LayerShellQt::Window::get(windowHandle())) {
-            layerWindow->setScope("hyprcapture-recording-outline");
-            layerWindow->setLayer(LayerShellQt::Window::LayerOverlay);
-            layerWindow->setAnchors({});
-            layerWindow->setExclusiveZone(0);
-            layerWindow->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityNone);
-            if (QScreen* screen = QGuiApplication::screenAt(geometry.center()))
-                layerWindow->setScreen(screen);
-        }
-    }
-
-  protected:
-    void paintEvent(QPaintEvent*) override {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, false);
-        painter.setPen(QPen(QColor(64, 180, 255, 230), 2));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawRect(rect().adjusted(1, 1, -2, -2));
-    }
-};
-
 } // namespace
 
 int main(int argc, char** argv) {
@@ -635,7 +584,6 @@ int main(int argc, char** argv) {
         {"thumbnail-screen-geometry", "Target thumbnail screen geometry as x,y,width,height.", "geometry"},
         {"record-countdown-request", "Show an input-transparent recording countdown for a private request file.", "path"},
         {"recording-result", "Handle a completed recording result.", "path"},
-        {"recording-outline", "Show a recording region outline.", "x,y,width,height"},
         {"recording-transcode-input", "Transcode an intermediate recording input.", "path"},
         {"recording-transcode-output", "Transcode output path.", "path"},
         {"recording-transcode-alpha", "Preserve alpha while transcoding.", "0|1", "0"},
@@ -718,15 +666,6 @@ int main(int argc, char** argv) {
 
     if (hasArgument(argc, argv, "--recording-result"))
         return showRecordingResult(defaults, parser.value("recording-result"));
-
-    if (hasArgument(argc, argv, "--recording-outline")) {
-        const QRect geometry = parseGeometry(parser.value("recording-outline"));
-        if (!geometry.isValid())
-            return 1;
-        RecordingOutlineWindow outline(geometry);
-        outline.show();
-        return app.exec();
-    }
 
     QString sessionJson = parser.value("session-json");
     if (parser.isSet("session-json-file")) {
