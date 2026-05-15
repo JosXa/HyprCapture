@@ -1,7 +1,6 @@
 #include "plugin/timing.hpp"
 
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/config/shared/Types.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 #include <atomic>

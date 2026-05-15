@@ -7,7 +7,6 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/config/shared/Types.hpp>
 #include <hyprland/src/config/values/types/BoolValue.hpp>
 #include <hyprland/src/config/values/types/IntValue.hpp>
 #include <hyprland/src/config/values/types/StringValue.hpp>
