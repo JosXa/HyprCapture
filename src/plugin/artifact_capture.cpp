@@ -15,8 +15,8 @@
 #include <hyprland/src/debug/HyprNotificationOverlay.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
-#include <hyprland/src/render/gl/GLFramebuffer.hpp>
-#include <hyprland/src/render/gl/GLTexture.hpp>
+#include <hyprland/src/render/Framebuffer.hpp>
+#include <hyprland/src/render/Texture.hpp>
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/pass/PassElement.hpp>
 #include <hyprland/src/render/Renderer.hpp>
