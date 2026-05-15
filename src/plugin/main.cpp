@@ -7,9 +7,6 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/config/values/types/BoolValue.hpp>
-#include <hyprland/src/config/values/types/IntValue.hpp>
-#include <hyprland/src/config/values/types/StringValue.hpp>
 #include <hyprland/src/desktop/rule/Engine.hpp>
 #include <hyprland/src/desktop/rule/layerRule/LayerRule.hpp>
 #include <hyprland/src/desktop/rule/layerRule/LayerRuleEffectContainer.hpp>
@@ -47,7 +44,6 @@ constexpr std::array  kLuaFunctionNames = {
 
 std::chrono::steady_clock::time_point g_lastCaptureDispatch {};
 std::chrono::steady_clock::time_point g_lastQuickRejectNotification {};
-std::deque<std::string>               g_configValueNames;
 
 std::string configName(const std::string& suffix) {
     return "plugin:hyprcapture:" + suffix;
@@ -107,23 +103,21 @@ bool configBool(const std::string& suffix, bool fallback) {
 }
 
 void addStringConfig(const char* suffix, const char* description, const char* fallback) {
-    const auto& name = g_configValueNames.emplace_back(configName(suffix));
-    HyprlandAPI::addConfigValueV2(g_pluginHandle, makeShared<Config::Values::CStringValue>(name.c_str(), description, fallback));
+    (void)description;
+    HyprlandAPI::addConfigValue(g_pluginHandle, configName(suffix), Hyprlang::STRING{fallback});
 }
 
 void addIntConfig(const char* suffix, const char* description, std::int64_t fallback) {
-    const auto& name = g_configValueNames.emplace_back(configName(suffix));
-    HyprlandAPI::addConfigValueV2(g_pluginHandle, makeShared<Config::Values::CIntValue>(name.c_str(), description, fallback));
+    (void)description;
+    HyprlandAPI::addConfigValue(g_pluginHandle, configName(suffix), Hyprlang::INT{fallback});
 }
 
 void addBoolConfig(const char* suffix, const char* description, bool fallback) {
-    const auto& name = g_configValueNames.emplace_back(configName(suffix));
-    HyprlandAPI::addConfigValueV2(g_pluginHandle, makeShared<Config::Values::CBoolValue>(name.c_str(), description, fallback));
+    (void)description;
+    HyprlandAPI::addConfigValue(g_pluginHandle, configName(suffix), Hyprlang::INT{fallback ? 1 : 0});
 }
 
 void registerConfigValues() {
-    g_configValueNames.clear();
-
     addStringConfig("default_mode", "Default HyprCapture mode", "region");
     addStringConfig("fullscreen_scope", "Fullscreen capture scope", "all");
     addStringConfig("window_background", "Window capture background mode", "follow-system");
