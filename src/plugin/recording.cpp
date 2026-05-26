@@ -364,17 +364,26 @@ std::optional<std::vector<std::string>> sanitizedGsrExtraFlags(std::string_view 
     return out;
 }
 
-std::string gsrCaptureSource(const RecordingRequest& request) {
+std::string gsrRegionGeometry(const RecordingRequest& request) {
+    const int width = std::max(1, static_cast<int>(std::round(request.targetGeometry.width)));
+    const int height = std::max(1, static_cast<int>(std::round(request.targetGeometry.height)));
+    const int x = static_cast<int>(std::round(request.targetGeometry.x));
+    const int y = static_cast<int>(std::round(request.targetGeometry.y));
+    return std::to_string(width) + "x" + std::to_string(height) + "+" + std::to_string(x) + "+" + std::to_string(y);
+}
+
+void appendGsrCaptureSource(std::vector<std::string>& args, const RecordingRequest& request) {
     if (request.mode == CaptureMode::Region ||
         request.mode == CaptureMode::Window ||
         (request.mode == CaptureMode::Fullscreen && request.targetGeometry.width > 0.0 && request.targetGeometry.height > 0.0)) {
-        const int width = std::max(1, static_cast<int>(std::round(request.targetGeometry.width)));
-        const int height = std::max(1, static_cast<int>(std::round(request.targetGeometry.height)));
-        const int x = static_cast<int>(std::round(request.targetGeometry.x));
-        const int y = static_cast<int>(std::round(request.targetGeometry.y));
-        return std::to_string(width) + "x" + std::to_string(height) + "+" + std::to_string(x) + "+" + std::to_string(y);
+        args.push_back("-w");
+        args.push_back("region");
+        args.push_back("-region");
+        args.push_back(gsrRegionGeometry(request));
+        return;
     }
-    return "screen";
+    args.push_back("-w");
+    args.push_back("screen");
 }
 
 std::string sanitizedCodec(std::string codec) {
@@ -1328,8 +1337,7 @@ LaunchResult spawnGpuScreenRecorder(const RecordingRequest& request, const std::
     args.push_back(std::to_string(fps));
     args.push_back("-cursor");
     args.push_back(request.defaults.includeCursor ? "yes" : "no");
-    args.push_back("-w");
-    args.push_back(gsrCaptureSource(request));
+    appendGsrCaptureSource(args, request);
     args.push_back("-o");
     args.push_back(outputPath.string());
 
