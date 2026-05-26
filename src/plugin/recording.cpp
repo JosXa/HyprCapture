@@ -364,26 +364,16 @@ std::optional<std::vector<std::string>> sanitizedGsrExtraFlags(std::string_view 
     return out;
 }
 
-std::string gsrRegionGeometry(const RecordingRequest& request) {
+std::string gsrCaptureSource(const RecordingRequest& request) {
+    if (request.mode != CaptureMode::Region && request.mode != CaptureMode::Window &&
+        !(request.mode == CaptureMode::Fullscreen && request.targetGeometry.width > 0.0 && request.targetGeometry.height > 0.0))
+        return "screen";
+
     const int width = std::max(1, static_cast<int>(std::round(request.targetGeometry.width)));
     const int height = std::max(1, static_cast<int>(std::round(request.targetGeometry.height)));
     const int x = static_cast<int>(std::round(request.targetGeometry.x));
     const int y = static_cast<int>(std::round(request.targetGeometry.y));
     return std::to_string(width) + "x" + std::to_string(height) + "+" + std::to_string(x) + "+" + std::to_string(y);
-}
-
-void appendGsrCaptureSource(std::vector<std::string>& args, const RecordingRequest& request) {
-    if (request.mode == CaptureMode::Region ||
-        request.mode == CaptureMode::Window ||
-        (request.mode == CaptureMode::Fullscreen && request.targetGeometry.width > 0.0 && request.targetGeometry.height > 0.0)) {
-        args.push_back("-w");
-        args.push_back("region");
-        args.push_back("-region");
-        args.push_back(gsrRegionGeometry(request));
-        return;
-    }
-    args.push_back("-w");
-    args.push_back("screen");
 }
 
 std::string sanitizedCodec(std::string codec) {
@@ -1054,8 +1044,8 @@ void notifyRecording(const std::string& message, const CHyprColor& color = CHypr
 }
 
 void finishRecordingOutput(const CaptureDefaults& defaults, const std::filesystem::path& outputPath, const std::string& message, bool launchResultHelper) {
-    (void)message;
     setOwnerOnlyPermissions(outputPath);
+    notifyRecording(message + ": " + outputPath.string());
 
     if (!launchResultHelper || (!defaults.clipboard && !defaults.showThumbnail))
         return;
@@ -1337,7 +1327,8 @@ LaunchResult spawnGpuScreenRecorder(const RecordingRequest& request, const std::
     args.push_back(std::to_string(fps));
     args.push_back("-cursor");
     args.push_back(request.defaults.includeCursor ? "yes" : "no");
-    appendGsrCaptureSource(args, request);
+    args.push_back("-w");
+    args.push_back(gsrCaptureSource(request));
     args.push_back("-o");
     args.push_back(outputPath.string());
 
@@ -1387,6 +1378,7 @@ LaunchResult startGsrRecording(const RecordingRequest& request) {
     g_gsrRecording->defaults = request.defaults;
     scheduleGsrStopTimer(std::clamp<int>(static_cast<int>(request.defaults.recordMaxSeconds), 0, 24 * 60 * 60));
 
+    notifyRecording("recording started: " + outputPath->string());
     return {.success = true};
 }
 
@@ -1502,6 +1494,7 @@ LaunchResult startRecordingFromRequestFile(const std::string& path) {
         if (request->defaults.recordMaxSeconds >= 10)
             notifyRecording("apng recordings of 10s or longer can create very large files", CHyprColor(1.0, 0.72, 0.2, 1.0), 7000);
     }
+    notifyRecording("recording started: " + outputPath->string());
     return {.success = true};
 }
 
