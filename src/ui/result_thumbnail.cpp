@@ -523,7 +523,7 @@ void ResultThumbnail::mouseMoveEvent(QMouseEvent* event) {
 void ResultThumbnail::mouseReleaseEvent(QMouseEvent* event) {
     if (m_transcodeProgressActive)
         return;
-    if (event->button() == Qt::LeftButton && !m_dragMoved && !m_path.isEmpty() && openPath(m_path))
+    if (event->button() == Qt::LeftButton && !m_dragMoved && !m_path.isEmpty() && annotatePath(m_path))
         close();
 }
 
