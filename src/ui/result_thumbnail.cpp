@@ -594,20 +594,7 @@ bool ResultThumbnail::annotatePath(const QString& path) {
         QStringLiteral("--filename"),
         canonical,
         QStringLiteral("--output-filename"),
-        canonical,
-        QStringLiteral("--copy-command"),
-        QStringLiteral("wl-copy"),
-        QStringLiteral("--actions-on-enter"),
-        QStringLiteral("save-to-clipboard"),
-        QStringLiteral("--actions-on-enter"),
-        QStringLiteral("save-to-file"),
-        QStringLiteral("--actions-on-enter"),
-        QStringLiteral("exit"),
-        QStringLiteral("--actions-on-escape"),
-        QStringLiteral("exit"),
-        QStringLiteral("--initial-tool"),
-        QStringLiteral("arrow"),
-        QStringLiteral("--early-exit")
+        canonical
     };
 
     QProcess process;
