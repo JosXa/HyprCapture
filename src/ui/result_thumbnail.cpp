@@ -373,6 +373,10 @@ ResultThumbnail::ResultThumbnail(const QPixmap& pixmap,
         if (!m_path.isEmpty() && openPath(m_path))
             close();
     });
+    addAction("Annotate", [this] {
+        if (!m_path.isEmpty() && annotatePath(m_path))
+            close();
+    });
     addAction("Open with", [this] {
         if (m_openWithPanel)
             m_openWithPanel->setVisible(!m_openWithPanel->isVisible());
@@ -574,6 +578,44 @@ bool ResultThumbnail::openPath(const QString& path) {
         return false;
     process.setProgram(program);
     process.setArguments({path});
+    return process.startDetached();
+}
+
+bool ResultThumbnail::annotatePath(const QString& path) {
+    const QString canonical = QFileInfo(path).canonicalFilePath();
+    if (canonical.isEmpty())
+        return false;
+
+    const QString satty = hyprcapture::ui::trustedSystemProgram(QStringLiteral("satty"));
+    if (satty.isEmpty())
+        return false;
+
+    QStringList args{
+        QStringLiteral("--filename"),
+        canonical,
+        QStringLiteral("--output-filename"),
+        canonical,
+        QStringLiteral("--copy-command"),
+        QStringLiteral("wl-copy"),
+        QStringLiteral("--actions-on-enter"),
+        QStringLiteral("save-to-clipboard"),
+        QStringLiteral("--actions-on-enter"),
+        QStringLiteral("save-to-file"),
+        QStringLiteral("--actions-on-enter"),
+        QStringLiteral("exit"),
+        QStringLiteral("--actions-on-escape"),
+        QStringLiteral("exit"),
+        QStringLiteral("--initial-tool"),
+        QStringLiteral("arrow"),
+        QStringLiteral("--early-exit")
+    };
+
+    QProcess process;
+    auto environment = hyprcapture::ui::trustedProcessEnvironment();
+    environment.remove("QT_WAYLAND_SHELL_INTEGRATION");
+    process.setProcessEnvironment(environment);
+    process.setProgram(satty);
+    process.setArguments(args);
     return process.startDetached();
 }
 

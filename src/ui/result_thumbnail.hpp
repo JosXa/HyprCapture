@@ -41,6 +41,7 @@ class ResultThumbnail final : public QWidget {
     enum class SwipeAction { Close, Delete };
 
     bool openPath(const QString& path);
+    bool annotatePath(const QString& path);
     bool openWithPortal(const QString& path);
     bool openWithApp(const QString& appId, const QString& path);
     void toggleMenu();
