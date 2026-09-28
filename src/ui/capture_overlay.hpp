@@ -18,8 +18,10 @@ class QPainter;
 class QPushButton;
 class QResizeEvent;
 class QShowEvent;
+class QHideEvent;
 class QPropertyAnimation;
 class InlineSelect;
+class CaptureOverlayOutput;
 
 namespace hyprcapture::ui {
 struct ClipboardSnapshotData;
@@ -34,6 +36,7 @@ class CaptureOverlay final : public QMainWindow {
 
   protected:
     void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
@@ -42,6 +45,11 @@ class CaptureOverlay final : public QMainWindow {
     void resizeEvent(QResizeEvent* event) override;
 
   private:
+    friend class CaptureOverlayOutput;
+    void paintOverlay(QPainter& painter, const QRect& viewport);
+    void update();
+    void update(const QRect& damage);
+
     enum class ConfirmDragMode { None, NewSelection, MoveSelection, ResizeLeft, ResizeTop, ResizeRight, ResizeBottom, ResizeTopLeft, ResizeTopRight, ResizeBottomRight, ResizeBottomLeft };
 
     struct MonitorArtifact {
@@ -187,6 +195,7 @@ class CaptureOverlay final : public QMainWindow {
     QImage       m_desktopImage;
     QRect        m_desktopGeometry;
     QRect        m_overlayGeometry;
+    std::vector<CaptureOverlayOutput*> m_outputOverlays;
     int          m_sessionMonitorCount = 0;
     int          m_sessionWindowCount = 0;
     int          m_selectedWindowIndex = -1;

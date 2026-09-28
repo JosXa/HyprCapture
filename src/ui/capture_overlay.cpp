@@ -55,6 +55,66 @@
 #include <map>
 #include <utility>
 
+// Wayland layer surfaces belong to one output. Other outputs share the main
+// overlay's selection and frozen desktop, while the mode chooser stays put.
+class CaptureOverlayOutput final : public QWidget {
+  public:
+    CaptureOverlayOutput(CaptureOverlay* overlay, QScreen* screen, const QRect& geometry)
+        : QWidget(overlay, Qt::FramelessWindowHint | Qt::Tool), m_overlay(overlay),
+          m_offset(geometry.topLeft() - overlay->m_overlayGeometry.topLeft()) {
+        setAttribute(Qt::WA_TranslucentBackground);
+        setMouseTracking(true);
+        setCursor(Qt::CrossCursor);
+        setGeometry(geometry);
+        winId();
+        windowHandle()->setScreen(screen);
+        if (auto* layerWindow = LayerShellQt::Window::get(windowHandle())) {
+            layerWindow->setScreen(screen);
+            layerWindow->setScope("hyprcapture-ui");
+            layerWindow->setLayer(LayerShellQt::Window::LayerOverlay);
+            layerWindow->setAnchors(LayerShellQt::Window::Anchors{LayerShellQt::Window::AnchorTop} | LayerShellQt::Window::AnchorBottom |
+                                    LayerShellQt::Window::AnchorLeft | LayerShellQt::Window::AnchorRight);
+            layerWindow->setExclusiveZone(-1);
+            layerWindow->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
+            layerWindow->setActivateOnShow(false);
+            layerWindow->setDesiredSize(QSize(0, 0));
+        }
+    }
+
+    void updateSelection(const QRect& damage) {
+        setCursor(m_overlay->cursor());
+        update(damage.translated(-m_offset).intersected(rect()));
+    }
+
+  protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.translate(-m_offset);
+        m_overlay->paintOverlay(painter, rect().translated(m_offset));
+    }
+
+    void mousePressEvent(QMouseEvent* event) override { forwardMouseEvent(event); }
+    void mouseMoveEvent(QMouseEvent* event) override { forwardMouseEvent(event); }
+    void mouseReleaseEvent(QMouseEvent* event) override { forwardMouseEvent(event); }
+    void keyPressEvent(QKeyEvent* event) override { m_overlay->keyPressEvent(event); }
+
+  private:
+    void forwardMouseEvent(QMouseEvent* event) {
+        const QPointF position = event->position() + m_offset;
+        QMouseEvent translated(event->type(), position, event->globalPosition(), event->button(), event->buttons(), event->modifiers());
+        if (event->type() == QEvent::MouseButtonPress)
+            m_overlay->mousePressEvent(&translated);
+        else if (event->type() == QEvent::MouseButtonRelease)
+            m_overlay->mouseReleaseEvent(&translated);
+        else
+            m_overlay->mouseMoveEvent(&translated);
+        setCursor(m_overlay->cursor());
+    }
+
+    CaptureOverlay* m_overlay;
+    QPoint m_offset;
+};
+
 class InlineSelect final : public QWidget {
   public:
     explicit InlineSelect(QWidget* popupParent, QWidget* parent = nullptr);
@@ -1447,7 +1507,14 @@ CaptureOverlay::CaptureOverlay(hyprcapture::CaptureDefaults defaults, bool quick
     captureScreensBeforeOverlay();
     traceTiming(QStringLiteral("prepare_desktop"), preCaptureTimer.elapsed());
 
-    const FocusedHyprlandOutput targetOutput = focusedHyprlandOutput();
+    FocusedHyprlandOutput targetOutput = focusedHyprlandOutput();
+    if (!targetOutput.screen)
+        targetOutput.screen = QGuiApplication::primaryScreen();
+    // Artifacts carry compositor logical geometry, including scale/rotation.
+    for (const auto& artifact : m_monitorArtifacts) {
+        if (targetOutput.screen && artifact.name == targetOutput.screen->name())
+            targetOutput.geometry = artifact.logicalGeometry;
+    }
     m_overlayGeometry = targetOutput.geometry.isValid()
         ? targetOutput.geometry
         : (m_desktopGeometry.isValid() ? m_desktopGeometry : QRect(0, 0, 1280, 720));
@@ -1472,6 +1539,18 @@ CaptureOverlay::CaptureOverlay(hyprcapture::CaptureDefaults defaults, bool quick
         layerWindow->setKeyboardInteractivity(LayerShellQt::Window::KeyboardInteractivityOnDemand);
         layerWindow->setActivateOnShow(true);
         layerWindow->setDesiredSize(QSize(0, 0));
+    }
+    if (!m_quick) {
+        for (auto* screen : QGuiApplication::screens()) {
+            if (screen == targetOutput.screen)
+                continue;
+            QRect geometry = screen->geometry();
+            for (const auto& artifact : m_monitorArtifacts) {
+                if (artifact.name == screen->name())
+                    geometry = artifact.logicalGeometry;
+            }
+            m_outputOverlays.push_back(new CaptureOverlayOutput(this, screen, geometry));
+        }
     }
     traceTiming(QStringLiteral("overlay_construct"), constructorTimer.elapsed());
     if (m_quick)
@@ -1870,9 +1949,27 @@ void CaptureOverlay::fadeOutThen(std::function<void()> finished) {
 
 void CaptureOverlay::showEvent(QShowEvent* event) {
     QMainWindow::showEvent(event);
+    for (auto* output : m_outputOverlays)
+        output->show();
     if (!m_fadeOutStarted && m_overlayOpacity < 1.0)
         startFadeIn();
     QTimer::singleShot(0, this, &CaptureOverlay::refreshInitialCursorPosition);
+}
+
+void CaptureOverlay::hideEvent(QHideEvent* event) {
+    for (auto* output : m_outputOverlays)
+        output->hide();
+    QMainWindow::hideEvent(event);
+}
+
+void CaptureOverlay::update() {
+    update(regionCaptureBounds());
+}
+
+void CaptureOverlay::update(const QRect& damage) {
+    QMainWindow::update(damage.intersected(rect()));
+    for (auto* output : m_outputOverlays)
+        output->updateSelection(damage);
 }
 
 void CaptureOverlay::hideOptionPopups() {
@@ -2365,14 +2462,18 @@ void CaptureOverlay::paintDesktop(QPainter& painter, const QRect& target) const 
 
 void CaptureOverlay::paintEvent(QPaintEvent*) {
     QPainter painter(this);
+    paintOverlay(painter, rect());
+}
+
+void CaptureOverlay::paintOverlay(QPainter& painter, const QRect& viewport) {
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.fillRect(rect(), Qt::transparent);
+    painter.fillRect(viewport, Qt::transparent);
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     painter.setOpacity(m_overlayOpacity);
 
-    paintDesktop(painter, rect());
-    painter.fillRect(rect(), QColor(0, 0, 0, 80));
+    paintDesktop(painter, viewport);
+    painter.fillRect(viewport, QColor(0, 0, 0, 80));
 
     const bool fusionGesture = m_defaults.fushionMode && m_mode != hyprcapture::CaptureMode::Fullscreen;
     const QRect sel = normalizedSelection().intersected(regionCaptureBounds());
@@ -2698,7 +2799,7 @@ QRect CaptureOverlay::selectionUpdateRect(const QRect& previous, const QRect& cu
         return QRect();
 
     // Selection painting redraws the image plus a 2px border, so pad the damage a little.
-    return dirty.adjusted(-6, -6, 6, 6).intersected(rect());
+    return dirty.adjusted(-6, -6, 6, 6).intersected(regionCaptureBounds());
 }
 
 QRect CaptureOverlay::captureRectForMode() const {
@@ -2716,11 +2817,11 @@ QRect CaptureOverlay::captureRectForMode() const {
 QRect CaptureOverlay::fullscreenCaptureRect() const {
     if (currentFullscreenScope() == hyprcapture::FullscreenScope::Current)
         return localScreenRectAt(globalToLocalRect(QRect(cursorLogicalPosition(), QSize(1, 1))).topLeft());
-    return rect();
+    return regionCaptureBounds();
 }
 
 QRect CaptureOverlay::regionCaptureBounds() const {
-    return rect();
+    return globalToLocalRect(m_desktopGeometry);
 }
 
 QRect CaptureOverlay::localScreenRectAt(const QPoint& localPos) const {
@@ -2728,7 +2829,7 @@ QRect CaptureOverlay::localScreenRectAt(const QPoint& localPos) const {
         const QPoint logicalPoint = localToDesktopLogicalPoint(localPos);
         for (const auto& artifact : m_monitorArtifacts) {
             if (artifact.logicalGeometry.contains(logicalPoint))
-                return globalToLocalRect(artifact.logicalGeometry).intersected(rect());
+                return globalToLocalRect(artifact.logicalGeometry);
         }
     }
 
@@ -2737,7 +2838,7 @@ QRect CaptureOverlay::localScreenRectAt(const QPoint& localPos) const {
         screen = QGuiApplication::screenAt(cursorLogicalPosition());
     if (!screen)
         screen = QGuiApplication::primaryScreen();
-    return screen ? globalToLocalRect(screen->geometry()).intersected(rect()) : rect();
+    return screen ? globalToLocalRect(screen->geometry()) : rect();
 }
 
 QPoint CaptureOverlay::clampedToRect(const QPoint& point, const QRect& bounds) const {
