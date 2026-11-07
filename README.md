@@ -195,7 +195,7 @@ Use lowercase `s` for `SUPER + s`. In Lua config key strings, uppercase `S` mean
 
 ### Recording
 
-Recording is toggled from the normal screenshot overlay toolbar. Click the record icon, choose an output format, then choose fullscreen, drag a region, or choose a window exactly like a screenshot. Fullscreen and region video recordings are handed to `gpu-screen-recorder`; GIF, APNG, WebP, and the default window backend use HyprCapture's compositor renderer. Window recordings also have an optional visible-region `gpu-screen-recorder` backend for normal video formats.
+Recording is toggled from the normal screenshot overlay toolbar. Click the record icon, choose an output format, then choose fullscreen, drag a region, or choose a window exactly like a screenshot. Fullscreen and region video recordings are handed to `gpu-screen-recorder`; GIF, APNG, WebP, and the default window backend use HyprCapture's compositor renderer. Window recordings also have an optional visible-region `gpu-screen-recorder` backend for normal video formats. `gpu-screen-recorder` captures through KMS, so when the target area covers an output that is not a DRM output, such as a nested Hyprland window, fullscreen and region recordings use the compositor renderer instead. If `gpu-screen-recorder` exits on its own, HyprCapture reports the recording as failed.
 
 To stop an active recording, open the same overlay and click the checked record icon.
 

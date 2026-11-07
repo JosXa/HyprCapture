@@ -129,12 +129,17 @@ hyprcapture::LaunchResult startRecordingOverlay(const std::string& mode) {
     return openCapture(mode, false, true);
 }
 
-int luaResult(lua_State* L, const hyprcapture::LaunchResult& result) {
-    if (result.success)
-        return 0;
-
-    lua_pushstring(L, result.error.empty() ? "hyprcapture function failed" : result.error.c_str());
-    return lua_error(L);
+template <typename Action>
+int luaResult(lua_State* L, Action&& action) {
+    bool failed = false;
+    {
+        const hyprcapture::LaunchResult result = action();
+        if (!result.success) {
+            lua_pushstring(L, result.error.empty() ? "hyprcapture function failed" : result.error.c_str());
+            failed = true;
+        }
+    }
+    return failed ? lua_error(L) : 0;
 }
 
 std::string luaOptionalString(lua_State* L, int index) {
@@ -145,33 +150,37 @@ std::string luaOptionalString(lua_State* L, int index) {
 }
 
 int luaOpen(lua_State* L) {
-    return luaResult(L, openCapture(luaOptionalString(L, 1), false, false));
+    return luaResult(L, [L] { return openCapture(luaOptionalString(L, 1), false, false); });
 }
 
 int luaQuick(lua_State* L) {
-    return luaResult(L, openCapture(luaOptionalString(L, 1), true, false));
+    return luaResult(L, [L] { return openCapture(luaOptionalString(L, 1), true, false); });
 }
 
 int luaRecord(lua_State* L) {
-    return luaResult(L, startRecordingOverlay(luaOptionalString(L, 1)));
+    return luaResult(L, [L] { return startRecordingOverlay(luaOptionalString(L, 1)); });
 }
 
 int luaRecordToggle(lua_State* L) {
-    if (hyprcapture::isRecordingActive())
-        return luaResult(L, hyprcapture::stopRecording("stopped"));
-    return luaResult(L, startRecordingOverlay(luaOptionalString(L, 1)));
+    return luaResult(L, [L] {
+        if (hyprcapture::isRecordingActive())
+            return hyprcapture::stopRecording("stopped");
+        return startRecordingOverlay(luaOptionalString(L, 1));
+    });
 }
 
 int luaRecordStop(lua_State* L) {
-    return luaResult(L, hyprcapture::stopRecording("stopped"));
+    return luaResult(L, [] { return hyprcapture::stopRecording("stopped"); });
 }
 
 int luaRecordStart(lua_State* L) {
-    return luaResult(L, notifyOnFailure(hyprcapture::startRecordingFromRequestFile(luaL_checkstring(L, 1))));
+    const char* requestPath = luaL_checkstring(L, 1);
+    return luaResult(L, [requestPath] { return notifyOnFailure(hyprcapture::startRecordingFromRequestFile(requestPath)); });
 }
 
 int luaWindowCapture(lua_State* L) {
-    return luaResult(L, notifyOnFailure(hyprcapture::captureWindowArtifactFromRequestFile(luaL_checkstring(L, 1))));
+    const char* requestPath = luaL_checkstring(L, 1);
+    return luaResult(L, [requestPath] { return notifyOnFailure(hyprcapture::captureWindowArtifactFromRequestFile(requestPath)); });
 }
 
 void registerLuaFunctions() {
