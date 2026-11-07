@@ -2,7 +2,7 @@
 name = "HyprCapture"
 authors = ["wilf"]
 commit_pins = [
-    ["0.54.3", ""]
+    ["39d7e209c79d451efab1b21151d5938289da838d", "58f81240072e9006891920e2f1efec263d7368a4"]
 ]
 
 [hyprcapture]

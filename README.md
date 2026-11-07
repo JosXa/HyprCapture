@@ -3,7 +3,10 @@
 HyprCapture is a Hyprland-only screenshot tool split into a compositor plugin and a Qt layer-shell helper. The plugin captures frozen compositor artifacts and launches the helper; the helper provides the selection overlay, output rendering, clipboard integration, and result thumbnail.
 
 > [!IMPORTANT]
-> `hyprpm` builds the compositor plugin and installs the helper to `~/.local/bin/hyprcapture-ui`. Set `plugin:hyprcapture:helper` only when you want to override that default helper path.
+> `hyprpm` builds the compositor plugin and installs the helper to `~/.local/bin/hyprcapture-ui`. Set `plugin.hyprcapture.helper` only when you want to override that default helper path.
+
+> [!NOTE]
+> This branch targets Hyprland 0.57 and newer, which only supports Lua config (`hyprland.lua`). Actions are Lua functions under `hl.plugin.hyprcapture`; the old `hyprcapture:*` dispatchers no longer exist.
 
 > [!WARNING]
 > Hyprland plugins run inside the compositor process and with high permission. Install plugins only from sources you trust.
@@ -46,8 +49,8 @@ hyprpm reload
 
 If you use Hyprland's permission system, allow `hyprpm` in your config:
 
-```conf
-permission = /usr/(bin|local/bin)/hyprpm, plugin, allow
+```lua
+hl.permission({ binary = "/usr/(bin|local/bin)/hyprpm", type = "plugin", mode = "allow" })
 ```
 
 Do not also manually `hyprctl plugin load` the same `.so` if you manage it through `hyprpm`.
@@ -74,14 +77,10 @@ The plugin default helper lookup is:
 
 Helper paths must resolve to trusted regular executables owned by the current user or root, without group/other write permission, and with trusted parent directory permissions.
 
-Only configure `plugin:hyprcapture:helper` if you want to use a custom helper path:
+Only configure `plugin.hyprcapture.helper` if you want to use a custom helper path:
 
-```conf
-plugin {
-    hyprcapture {
-        helper = /home/you/.local/bin/hyprcapture-ui
-    }
-}
+```lua
+hl.config({ plugin = { hyprcapture = { helper = "/home/you/.local/bin/hyprcapture-ui" } } })
 ```
 
 ### Manual helper install
@@ -107,12 +106,12 @@ ctest --test-dir build-release --output-on-failure
 install -Dm755 build-release/hyprcapture-ui "$HOME/.local/bin/hyprcapture-ui"
 ```
 
-For the Hyprland 0.55 preview checkout, point CMake at the matching source tree so the plugin is built against the new Lua-config-capable headers:
+To build against a Hyprland source tree instead of the installed headers, point CMake at it:
 
 ```sh
-cmake -S . -B build-v055 -DCMAKE_BUILD_TYPE=RelWithDebInfo -DHYPRLAND_SOURCE_DIR="$HOME/data/Hyprland"
-cmake --build build-v055
-ctest --test-dir build-v055 --output-on-failure
+cmake -S . -B build-src -DCMAKE_BUILD_TYPE=RelWithDebInfo -DHYPRLAND_SOURCE_DIR="$HOME/data/Hyprland"
+cmake --build build-src
+ctest --test-dir build-src --output-on-failure
 ```
 
 For development without installing, point `helper` at the build-tree executable or launch Hyprland with:
@@ -150,23 +149,21 @@ Build outputs:
 
 ## Usage
 
-### Dispatchers
+### Lua functions
 
-```conf
-bind = SUPER SHIFT, S, hyprcapture:open
-bind = SUPER SHIFT, W, hyprcapture:open,window
-bind = SUPER SHIFT, F, hyprcapture:open,fullscreen
-```
+The plugin registers these functions under `hl.plugin.hyprcapture`. `mode` is optional and accepts `region`, `fullscreen`, or `window`; without it, `default_mode` applies.
 
-| Dispatcher | Description |
+| Function | Description |
 | --- | --- |
-| `hyprcapture:open` | Open the overlay using `default_mode`. |
-| `hyprcapture:open,<mode>` | Open the overlay in `region`, `fullscreen`, or `window` mode. |
-| `hyprcapture:quick` | Capture immediately using `default_mode`; disabled unless `allow_quick = 1`. |
-| `hyprcapture:quick,<mode>` | Capture immediately in `region`, `fullscreen`, or `window` mode; disabled unless `allow_quick = 1`. |
-| `hyprcapture:cancel` | Reserved dispatcher; currently returns success without changing an active helper. |
+| `open([mode])` | Open the overlay. |
+| `quick([mode])` | Capture immediately; disabled unless `allow_quick = true`. |
+| `record([mode])` | Open the overlay in recording mode; fails while a recording is active. |
+| `record_toggle([mode])` | Stop the active recording, or open the overlay in recording mode. |
+| `record_stop()` | Stop the active recording. |
+| `record_start(request_path)` | Internal: the helper starts a recording from a request file. |
+| `window_capture(request_path)` | Internal: the helper requests a window artifact from a request file. |
 
-When Hyprland is running with Lua config, the plugin also exposes matching functions under `hl.plugin.hyprcapture`:
+Errors are raised as Lua errors, so `hyprctl eval` prints them.
 
 ```lua
 hl.bind("SUPER + s", function()
@@ -178,9 +175,12 @@ hl.bind("SUPER + SHIFT + S", function()
 end)
 ```
 
-Available Lua functions are `open`, `quick`, `record`, `record_toggle`, `record_stop`, `record_start`, `cancel`, and `dispatch`.
-`dispatch` accepts the dispatcher name plus an optional argument, for example `hl.plugin.hyprcapture.dispatch("open", "fullscreen")`.
-The internal helper uses `record_start_dispatcher` and `record_stop_dispatcher` so `hyprctl dispatch` can call back into the plugin under Lua config.
+From a shell or script:
+
+```sh
+hyprctl eval 'hl.plugin.hyprcapture.open("region")'
+hyprctl eval 'hl.plugin.hyprcapture.record_toggle()'
+```
 
 Use lowercase `s` for `SUPER + s`. In Lua config key strings, uppercase `S` means Shift is part of the binding.
 
@@ -203,7 +203,7 @@ Current recording output is a single file under `record_save_dir`. Fullscreen an
 
 ### Thumbnail
 
-The thumbnail appears after capture when `show_thumbnail = 1`.
+The thumbnail appears after capture when `show_thumbnail = true`.
 
 - Left click opens the saved image.
 - Drag starts a file drag for targets that accept image files.
@@ -213,53 +213,9 @@ The thumbnail appears after capture when `show_thumbnail = 1`.
 
 ## Configuration
 
-All user-facing settings live under `plugin:hyprcapture`.
+All user-facing settings live under `plugin.hyprcapture` and are set with `hl.config`. Bool options take `true`/`false`, int options take numbers, and all other options take strings.
 
-Example:
-
-```conf
-plugin {
-    hyprcapture {
-        default_mode = region
-        fullscreen_scope = all
-        window_background = follow-system
-        window_border = keep
-        window_shadow = keep
-        save = 1
-        clipboard = 1
-        show_thumbnail = 1
-        allow_quick = 0
-        confirm_before_capture = 0
-        fusion_mode = 0
-        save_dir = $XDG_PICTURES_DIR/Screenshots
-        filename_template = Screenshot-%Y-%m-%d-%H%M%S.png
-        record_save_dir = $XDG_VIDEOS_DIR/Screenrecords
-        record_filename_template = Recording-%Y-%m-%d-%H%M%S.mp4
-        record_format = mp4
-        record_transparent_format = webm
-        record_fps = 30
-        record_fps_options = 15 24 30 60
-        record_window_fps_limit = 12
-        record_window_real_bg_fps_limit = 8
-        record_codec = libx264
-        record_transparent_codec = auto
-        record_solid_alpha = 0
-        record_preset = veryfast
-        record_gsr_flags =
-        record_window_backend = compositor
-        record_max_seconds = 0
-        record_countdown_seconds = 0
-        include_cursor = 0
-        thumbnail_timeout_ms = 5000
-        watermark =
-        watermark_position = central
-        watermark_width = 20%
-        watermark_offset = 0 0
-    }
-}
-```
-
-Lua config example:
+Example with the defaults:
 
 ```lua
 hl.config({
@@ -300,42 +256,13 @@ hl.config({
             watermark_position = "central",
             watermark_width = "20%",
             watermark_offset = "0 0",
+            helper = "",
+            timing = false,
+            timing_file = "",
         },
     },
 })
 ```
-
-### Lua Config Guide
-
-Use `hl.config` for settings and `hl.plugin.hyprcapture` for actions:
-
-```lua
-hl.config({
-    plugin = {
-        hyprcapture = {
-            default_mode = "region",
-            fusion_mode = true,
-            confirm_before_capture = false,
-            fullscreen_scope = "all",
-            window_background = "follow-system",
-            save = true,
-            clipboard = true,
-            show_thumbnail = true,
-            helper = "/home/you/.local/bin/hyprcapture-ui",
-        },
-    },
-})
-
-hl.bind("SUPER + s", function()
-    hl.plugin.hyprcapture.open()
-end)
-
-hl.bind("SUPER + SHIFT + S", function()
-    hl.plugin.hyprcapture.open("window")
-end)
-```
-
-Do not use `hyprctl dispatch hyprcapture:open` as a Lua fallback. Hyprland's Lua config dispatcher parser treats `hyprcapture:open` as Lua syntax. Use `hl.plugin.hyprcapture.open()` once the plugin is loaded, or bind a direct helper command during development while testing an older loaded plugin.
 
 The old misspelled `fushion_mode` key is still accepted as a compatibility alias, but new configs should use `fusion_mode`.
 
@@ -343,24 +270,24 @@ The old misspelled `fushion_mode` key is still accepted as a compatibility alias
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `default_mode` | string | `region` | Default mode for `hyprcapture:open` and `hyprcapture:quick`. Supports `region`, `fullscreen`, and `window`. |
+| `default_mode` | string | `region` | Default mode for `open()`, `quick()`, and the recording functions. Supports `region`, `fullscreen`, and `window`. |
 | `fullscreen_scope` | string | `all` | Fullscreen capture scope. Supports `all`, `current`, and `per-monitor`. |
 | `window_background` | string | `follow-system` | Background behind transparent window pixels. Supports `follow-system`, `white`, `black`, `real`, and `transparent`. |
 | `window_border` | string | `keep` | Window border policy. Supports `keep` and `remove`. |
 | `window_shadow` | string | `keep` | Window shadow policy. Supports `keep` and `remove`. Transparent window recordings keep shadows and normalize the alpha falloff so the shadow fades out instead of encoding as a hard border. |
-| `include_cursor` | bool | `0` | Parsed and forwarded by the plugin/helper; cursor compositing is not currently rendered into the output. |
-| `allow_quick` | bool | `0` | Enable no-confirmation `hyprcapture:quick` dispatchers. Leave disabled unless your Hyprland IPC policy already restricts untrusted same-user clients. |
-| `confirm_before_capture` | bool | `0` | For `hyprcapture:open`, require an explicit confirmation after choosing a fullscreen, region, or window target. Region targets can be moved or resized; window targets can be switched before confirming. `hyprcapture:quick` and direct `hyprcapture:record` keep their existing no-extra-confirmation behavior. |
-| `fusion_mode` | bool | `0` | Fuse region and window interactions in one overlay: drag to capture a region, or single-click a window to capture that window. The toolbar keeps the fullscreen action and configuration controls; fullscreen multi-monitor scope is shown only when multiple monitors are present. |
-| `fushion_mode` | bool | `0` | Legacy compatibility alias for `fusion_mode`. New configs should use `fusion_mode`. |
+| `include_cursor` | bool | `false` | Parsed and forwarded by the plugin/helper; cursor compositing is not currently rendered into the output. |
+| `allow_quick` | bool | `false` | Enable no-confirmation `hl.plugin.hyprcapture.quick()`. Leave disabled unless your Hyprland IPC policy already restricts untrusted same-user clients. |
+| `confirm_before_capture` | bool | `false` | For `open()`, require an explicit confirmation after choosing a fullscreen, region, or window target. Region targets can be moved or resized; window targets can be switched before confirming. `quick()` and `record()` keep their existing no-extra-confirmation behavior. |
+| `fusion_mode` | bool | `false` | Fuse region and window interactions in one overlay: drag to capture a region, or single-click a window to capture that window. The toolbar keeps the fullscreen action and configuration controls; fullscreen multi-monitor scope is shown only when multiple monitors are present. |
+| `fushion_mode` | bool | `false` | Legacy compatibility alias for `fusion_mode`. New configs should use `fusion_mode`. |
 
 ### Output options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `save` | bool | `1` | Save the output image to `save_dir` as an owner-only file. |
-| `clipboard` | bool | `1` | Copy the output image to the clipboard. Uses `wl-copy` when available so the clipboard survives helper exit. |
-| `show_thumbnail` | bool | `1` | Show the result thumbnail after capture. |
+| `save` | bool | `true` | Save the output image to `save_dir` as an owner-only file. |
+| `clipboard` | bool | `true` | Copy the output image to the clipboard. Uses `wl-copy` when available so the clipboard survives helper exit. |
+| `show_thumbnail` | bool | `true` | Show the result thumbnail after capture. |
 | `save_dir` | string | `$XDG_PICTURES_DIR/Screenshots` | Output directory. `~` is expanded against `HOME`; `$XDG_PICTURES_DIR` is read from XDG user-dirs with `~/Pictures` as fallback. |
 | `filename_template` | string | `Screenshot-%Y-%m-%d-%H%M%S.png` | `strftime` template for saved screenshot filenames. |
 | `record_save_dir` | string | `$XDG_VIDEOS_DIR/Screenrecords` | Output directory for recordings. `$XDG_VIDEOS_DIR` is read from XDG user-dirs with `~/Videos` as fallback. Finished recordings can be copied to the clipboard as local file URIs and shown in the thumbnail when those global output settings are enabled. |
@@ -373,7 +300,7 @@ The old misspelled `fushion_mode` key is still accepted as a compatibility alias
 | `record_window_real_bg_fps_limit` | int | `8` | Additional safety cap for window recording with `window_background = real`. Use `0` to disable the cap. |
 | `record_codec` | string | `libx264` | Default recording codec shown in the overlay for normal video formats. Supports `auto`, `libx264`/`h264`, `h264_vaapi`, `libx265`/`h265`, `hevc_vaapi`/`h265_vaapi`, `libsvtav1`/`av1`, `av1_vaapi`, `libvpx-vp9`/`vp9`, `vp9_vaapi`, and `ffv1`. GIF, APNG, and WebP use fixed FFmpeg image-animation encoders. |
 | `record_transparent_codec` | string | `auto` | Default recording codec shown when `window_background = transparent`. `auto` probes a tiny FFmpeg encode/decode sample and uses a hardware alpha encoder only when it actually preserves alpha; otherwise it falls back to CPU VP9/FFV1 and shows a warning. |
-| `record_solid_alpha` | bool | `0` | For window recordings with `window_background = follow-system`, `white`, or `black`, keep alpha outside the window content when the selected format/codec supports transparency. This uses the same edge behavior as screenshot output and falls back to opaque recording when unsupported. |
+| `record_solid_alpha` | bool | `false` | For window recordings with `window_background = follow-system`, `white`, or `black`, keep alpha outside the window content when the selected format/codec supports transparency. This uses the same edge behavior as screenshot output and falls back to opaque recording when unsupported. |
 | `record_preset` | string | `veryfast` | FFmpeg preset used with `libx264`/`libx264rgb`. |
 | `record_gsr_flags` | string | empty | Extra default flags passed to `gpu-screen-recorder` for fullscreen and region recordings. `-w` and `-o` are rejected because HyprCapture owns the capture target and output path. If defaults conflict with overlay-controlled format, codec, FPS, cursor, target, or output settings, the overlay settings are appended later and take precedence. |
 | `record_window_backend` | string | `compositor` | Window recording backend. `compositor` preserves HyprCapture's offscreen window capture and background behavior. `gsr-visible` records the selected visible screen rectangle with `gpu-screen-recorder` for much lower overhead on normal video formats; occlusion/hidden-window capture and background replacement are not guaranteed. GIF, APNG, and WebP always use the compositor backend. |
@@ -419,5 +346,5 @@ Temporary compositor artifacts and thumbnail/clipboard scratch files are written
 
 - The repository includes a root [`hyprpm.toml`](hyprpm.toml) manifest, which is expected by `hyprpm`.
 - `window_background = real` uses compositor-captured real background data when available and falls back to reconstructing from the frozen desktop snapshot.
-- Recording applies window decoration cropping and solid/follow-system backgrounds in the compositor-side path. Since plugin-side recording cannot query the helper's Qt palette, `window_background = follow-system` uses the same light fallback color as the screenshot helper. `record_solid_alpha = 1` lets follow-system/white/black window recordings keep transparent pixels outside the window content when the selected format/codec supports alpha. `window_background = real` uses live compositor background data for window recordings and is treated as opaque for recording-format validation. Transparent output requires an alpha-capable format such as `webm`/VP9 or `mkv`/FFV1; MP4/MOV H.264/H.265 output is intentionally rejected for transparent recordings.
+- Recording applies window decoration cropping and solid/follow-system backgrounds in the compositor-side path. Since plugin-side recording cannot query the helper's Qt palette, `window_background = follow-system` uses the same light fallback color as the screenshot helper. `record_solid_alpha = true` lets follow-system/white/black window recordings keep transparent pixels outside the window content when the selected format/codec supports alpha. `window_background = real` uses live compositor background data for window recordings and is treated as opaque for recording-format validation. Transparent output requires an alpha-capable format such as `webm`/VP9 or `mkv`/FFV1; MP4/MOV H.264/H.265 output is intentionally rejected for transparent recordings.
 - Do not run `hyprpm update` or reload the plugin while an active screenshot overlay is being used.

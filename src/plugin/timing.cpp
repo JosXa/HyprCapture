@@ -1,9 +1,8 @@
 #include "plugin/timing.hpp"
 
-#include <hyprland/src/plugins/PluginAPI.hpp>
+#include "plugin/plugin_config.hpp"
 
 #include <atomic>
-#include <any>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
@@ -16,43 +15,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-extern HANDLE g_pluginHandle;
-
 namespace hyprcapture {
 namespace {
 
 std::mutex g_timingMutex;
 std::atomic<bool> g_cachedTimingEnabled = false;
 std::atomic<long long> g_nextTimingRefreshNs = 0;
-
-std::string configName(const std::string& suffix) {
-    return "plugin:hyprcapture:" + suffix;
-}
-
-bool configBool(const std::string& suffix, bool fallback) {
-    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
-    if (!value)
-        return fallback;
-
-    try {
-        return std::any_cast<Hyprlang::INT>(value->getValue()) != 0;
-    } catch (const std::bad_any_cast&) {
-        return fallback;
-    }
-}
-
-std::string configString(const std::string& suffix) {
-    const auto* value = HyprlandAPI::getConfigValue(g_pluginHandle, configName(suffix));
-    if (!value)
-        return {};
-
-    try {
-        const auto raw = std::any_cast<Hyprlang::STRING>(value->getValue());
-        return raw ? std::string(raw) : std::string{};
-    } catch (const std::bad_any_cast&) {
-        return {};
-    }
-}
 
 bool runtimeRootMatches(const std::filesystem::path& root, const std::filesystem::path& path) {
     std::error_code ec;
@@ -83,7 +51,7 @@ bool privateTimingPath(const std::filesystem::path& path) {
 }
 
 std::string timingFilePath() {
-    if (const auto configured = configString("timing_file"); !configured.empty())
+    if (const auto configured = plugin_config::string("timing_file"); !configured.empty())
         return configured;
     if (const char* env = std::getenv("HYPRCAPTURE_TIMING_FILE"); env && *env)
         return env;
@@ -101,7 +69,7 @@ bool timingEnabled() {
     if (now < g_nextTimingRefreshNs.load(std::memory_order_relaxed))
         return g_cachedTimingEnabled.load(std::memory_order_relaxed);
 
-    const bool enabled = configBool("timing", false) || std::getenv("HYPRCAPTURE_TIMING") || std::getenv("HYPRCAPTURE_TIMING_FILE");
+    const bool enabled = plugin_config::boolean("timing") || std::getenv("HYPRCAPTURE_TIMING") || std::getenv("HYPRCAPTURE_TIMING_FILE");
     g_cachedTimingEnabled.store(enabled, std::memory_order_relaxed);
     g_nextTimingRefreshNs.store(now + std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::milliseconds(250)).count(), std::memory_order_relaxed);
     return enabled;
