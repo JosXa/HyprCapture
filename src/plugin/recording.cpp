@@ -1,6 +1,7 @@
 #include "plugin/recording.hpp"
 
 #include "plugin/artifact_capture.hpp"
+#include "plugin/gsr_capture.hpp"
 #include "plugin/session_launcher.hpp"
 #include "plugin/timing.hpp"
 #include "shared/config.hpp"
@@ -9,6 +10,7 @@
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopTimer.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/state/MonitorState.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -362,18 +364,6 @@ std::optional<std::vector<std::string>> sanitizedGsrExtraFlags(std::string_view 
         out.push_back(token);
     }
     return out;
-}
-
-std::string gsrCaptureSource(const RecordingRequest& request) {
-    if (request.mode != CaptureMode::Region && request.mode != CaptureMode::Window &&
-        !(request.mode == CaptureMode::Fullscreen && request.targetGeometry.width > 0.0 && request.targetGeometry.height > 0.0))
-        return "screen";
-
-    const int width = std::max(1, static_cast<int>(std::round(request.targetGeometry.width)));
-    const int height = std::max(1, static_cast<int>(std::round(request.targetGeometry.height)));
-    const int x = static_cast<int>(std::round(request.targetGeometry.x));
-    const int y = static_cast<int>(std::round(request.targetGeometry.y));
-    return std::to_string(width) + "x" + std::to_string(height) + "+" + std::to_string(x) + "+" + std::to_string(y);
 }
 
 std::string sanitizedCodec(std::string codec) {
@@ -1357,8 +1347,13 @@ LaunchResult spawnGpuScreenRecorder(const RecordingRequest& request, const std::
     args.push_back(std::to_string(fps));
     args.push_back("-cursor");
     args.push_back(request.defaults.includeCursor ? "yes" : "no");
-    args.push_back("-w");
-    args.push_back(gsrCaptureSource(request));
+    std::vector<Rect> monitors;
+    for (const auto& monitor : State::monitorState()->monitors()) {
+        if (monitor)
+            monitors.push_back({monitor->m_position.x, monitor->m_position.y, monitor->m_size.x, monitor->m_size.y});
+    }
+    const auto captureArgs = gsrCaptureArguments(request.targetGeometry, monitors);
+    args.insert(args.end(), captureArgs.begin(), captureArgs.end());
     args.push_back("-o");
     args.push_back(outputPath.string());
 

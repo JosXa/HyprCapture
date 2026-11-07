@@ -66,6 +66,7 @@ add_library(hyprcapture SHARED
   src/plugin/main.cpp
   src/plugin/artifact_capture.cpp
   src/plugin/recording.cpp
+  src/plugin/gsr_capture.cpp
   src/plugin/session_launcher.cpp
   src/plugin/plugin_config.cpp
   src/plugin/timing.cpp
@@ -96,6 +97,13 @@ target_link_libraries(hyprcapture-ui PRIVATE ${GIO_LIBRARIES})
 target_link_options(hyprcapture-ui PRIVATE -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack)
 
 if(BUILD_TESTING)
+  add_executable(hyprcapture-gsr-capture-test
+    tests/gsr_capture_test.cpp
+    src/plugin/gsr_capture.cpp
+  )
+  target_include_directories(hyprcapture-gsr-capture-test PRIVATE src)
+  add_test(NAME hyprcapture-gsr-capture-test COMMAND hyprcapture-gsr-capture-test)
+
   add_executable(hyprcapture-config-test
     tests/config_test.cpp
     src/shared/config.cpp
