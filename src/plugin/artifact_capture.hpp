@@ -33,6 +33,8 @@ CaptureSession captureCompositorArtifacts(const CaptureDefaults& defaults, bool 
 LaunchResult captureWindowArtifactFromRequestFile(const std::string& path);
 std::optional<RecordingFrame> captureRecordingFrame(const RecordingFrameRequest& request);
 void resetRecordingCaptureState();
+bool kmsCanCaptureGeometry(const Rect& geometry);
+Rect desktopBounds();
 std::string writeCompositorSessionJsonFile(const CaptureSession& session, std::string_view json);
 void cleanupCompositorArtifacts(const CaptureSession& session);
 void shutdownArtifactCapture();

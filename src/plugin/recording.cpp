@@ -1032,11 +1032,20 @@ std::unique_ptr<FinishingRawRecording> g_finishingRawRecording;
 struct ActiveGsrRecording {
     pid_t                 pid = -1;
     SP<CEventLoopTimer>   timer;
+    SP<CEventLoopTimer>   exitWatch;
     std::filesystem::path outputPath;
     CaptureDefaults       defaults;
 };
 
 std::unique_ptr<ActiveGsrRecording> g_gsrRecording;
+
+void removeGsrTimers(ActiveGsrRecording& recording) {
+    for (auto* timer : {&recording.timer, &recording.exitWatch}) {
+        if (*timer && g_pEventLoopManager)
+            g_pEventLoopManager->removeTimer(*timer);
+        timer->reset();
+    }
+}
 
 void notifyRecording(const std::string& message, const CHyprColor& color = CHyprColor(0.2, 0.8, 0.3, 1.0), float timeoutMs = 3000) {
     if (g_pluginHandle)
@@ -1065,8 +1074,16 @@ bool reapGsrRecordingIfExited() {
         return true;
     if (result == g_gsrRecording->pid || (result < 0 && errno == ECHILD)) {
         auto recording = std::move(g_gsrRecording);
-        if (recording->timer && g_pEventLoopManager)
-            g_pEventLoopManager->removeTimer(recording->timer);
+        removeGsrTimers(*recording);
+        std::error_code sizeError;
+        const auto      outputSize = std::filesystem::file_size(recording->outputPath, sizeError);
+        const bool      exitedCleanly = result < 0 || (WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        if (!exitedCleanly || sizeError || outputSize == 0) {
+            std::filesystem::remove(recording->outputPath, sizeError);
+            const auto exitDetail = result == recording->pid && WIFEXITED(status) ? "exit status " + std::to_string(WEXITSTATUS(status)) : std::string("no output");
+            notifyRecording("recording failed: gpu-screen-recorder stopped (" + exitDetail + "); see Hyprland stderr", CHyprColor(1.0, 0.2, 0.2, 1.0), 6000);
+            return false;
+        }
         finishRecordingOutput(recording->defaults, recording->outputPath, "recording finished", true);
         return false;
     }
@@ -1137,11 +1154,9 @@ void scheduleFinishingRawRecordingPoll() {
 }
 
 LaunchResult stopRecordingInternal(const std::string& reason, bool drain) {
-    if (g_gsrRecording) {
+    if (reapGsrRecordingIfExited()) {
         auto recording = std::move(g_gsrRecording);
-        if (recording->timer && g_pEventLoopManager)
-            g_pEventLoopManager->removeTimer(recording->timer);
-        recording->timer.reset();
+        removeGsrTimers(*recording);
         if (recording->pid > 0) {
             kill(recording->pid, SIGINT);
             int status = 0;
@@ -1193,6 +1208,21 @@ void addPendingFrameRepeats(ActiveRecording& recording, int repeats) {
     if (repeats <= 0)
         return;
     recording.pendingFrameRepeats = std::min(MAX_PENDING_FRAME_REPEATS, recording.pendingFrameRepeats + repeats);
+}
+
+void scheduleGsrExitWatch() {
+    if (!g_gsrRecording || !g_pEventLoopManager)
+        return;
+
+    g_gsrRecording->exitWatch = makeShared<CEventLoopTimer>(
+        std::chrono::milliseconds(500),
+        [](SP<CEventLoopTimer> self, void*) {
+            if (!g_gsrRecording || g_gsrRecording->exitWatch.get() != self.get() || !reapGsrRecordingIfExited())
+                return;
+            self->updateTimeout(std::chrono::milliseconds(500));
+        },
+        nullptr);
+    g_pEventLoopManager->addTimer(g_gsrRecording->exitWatch);
 }
 
 void scheduleGsrStopTimer(int maxSeconds) {
@@ -1377,6 +1407,7 @@ LaunchResult startGsrRecording(const RecordingRequest& request) {
     g_gsrRecording->outputPath = *outputPath;
     g_gsrRecording->defaults = request.defaults;
     scheduleGsrStopTimer(std::clamp<int>(static_cast<int>(request.defaults.recordMaxSeconds), 0, 24 * 60 * 60));
+    scheduleGsrExitWatch();
 
     notifyRecording("recording started: " + outputPath->string());
     return {.success = true};
@@ -1405,9 +1436,13 @@ LaunchResult startRecordingFromRequestFile(const std::string& path) {
         request->defaults.recordWindowBackend = RecordWindowBackend::Compositor;
     }
 
-    if (!imageAnimation && (request->mode == CaptureMode::Fullscreen || request->mode == CaptureMode::Region ||
-                            (request->mode == CaptureMode::Window && request->defaults.recordWindowBackend == RecordWindowBackend::GsrVisible)))
+    const bool gsrRequested = !imageAnimation &&
+        (request->mode == CaptureMode::Fullscreen || request->mode == CaptureMode::Region ||
+         (request->mode == CaptureMode::Window && request->defaults.recordWindowBackend == RecordWindowBackend::GsrVisible));
+    if (gsrRequested && kmsCanCaptureGeometry(request->targetGeometry))
         return startGsrRecording(*request);
+    if (request->mode == CaptureMode::Fullscreen && (request->targetGeometry.width <= 0.0 || request->targetGeometry.height <= 0.0))
+        request->targetGeometry = desktopBounds();
 
     RecordingFrameRequest frameRequest{.defaults = request->defaults,
                                        .mode = request->mode,

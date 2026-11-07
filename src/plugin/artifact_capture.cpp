@@ -4,6 +4,7 @@
 #include "plugin/timing.hpp"
 
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <aquamarine/backend/Backend.hpp>
 
 #define private public
 #define protected public
@@ -2661,6 +2662,40 @@ std::optional<RecordingFrame> captureRecordingFrame(const RecordingFrameRequest&
         return std::nullopt;
 
     return captureDesktopRegionRecordingFrame(request.targetGeometry);
+}
+
+bool kmsCanCaptureGeometry(const Rect& geometry) {
+    const bool wholeDesktop = geometry.width <= 0.0 || geometry.height <= 0.0;
+    bool       anyMonitor = false;
+    for (const auto& monitor : State::monitorState()->monitors()) {
+        if (!monitor || (!wholeDesktop && !intersects(geometry, monitorRect(monitor))))
+            continue;
+        const auto backend = monitor->m_output ? monitor->m_output->getBackend() : nullptr;
+        if (!backend || backend->type() != Aquamarine::AQ_BACKEND_DRM)
+            return false;
+        anyMonitor = true;
+    }
+    return anyMonitor;
+}
+
+Rect desktopBounds() {
+    std::optional<Rect> bounds;
+    for (const auto& monitor : State::monitorState()->monitors()) {
+        if (!monitor)
+            continue;
+        const Rect rect = monitorRect(monitor);
+        if (!bounds) {
+            bounds = rect;
+            continue;
+        }
+        const double right = std::max(bounds->x + bounds->width, rect.x + rect.width);
+        const double bottom = std::max(bounds->y + bounds->height, rect.y + rect.height);
+        bounds->x = std::min(bounds->x, rect.x);
+        bounds->y = std::min(bounds->y, rect.y);
+        bounds->width = right - bounds->x;
+        bounds->height = bottom - bounds->y;
+    }
+    return bounds.value_or(Rect{});
 }
 
 void resetRecordingCaptureState() {
